@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jose y Lu — JoLuvers</title>
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <script type="module">
+import { Renderer, Program, Mesh, Triangle } from 'https://esm.sh/ogl@1.0.6';
+
+const vertexShader = `
+attribute vec2 uv;
+attribute vec2 position;
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 0, 1);
+}
+`;
+
+const fragmentShader = `
+precision highp float;
+#define PI 3.14159265359
+uniform float iTime;
+uniform vec3 iResolution;
+uniform float uSpinRotation;
+uniform float uSpinSpeed;
+uniform vec2 uOffset;
+uniform vec4 uColor1;
+uniform vec4 uColor2;
+uniform vec4 uColor3;
+uniform float uContrast;
+uniform float uLighting;
+uniform float uSpinAmount;
+uniform float uPixelFilter;
+uniform float uSpinEase;
+uniform bool uIsRotate;
+uniform vec2 uMouse;
+varying vec2 vUv;
+
+vec4 effect(vec2 screenSize, vec2 screen_coords) {
+    float pixel_size = length(screenSize.xy) / uPixelFilter;
+    vec2 uv = (floor(screen_coords.xy * (1.0 / pixel_size)) * pixel_size - 0.5 * screenSize.xy) / length(screenSize.xy) - uOffset;
+    float uv_len = length(uv);
+    float speed = (uSpinRotation * uSpinEase * 0.2);
+    if(uIsRotate){ speed = iTime * speed; }
+    speed += 302.2;
+    float mouseInfluence = (uMouse.x * 2.0 - 1.0);
+    speed += mouseInfluence * 0.1;
+    float new_pixel_angle = atan(uv.y, uv.x) + speed - uSpinEase * 20.0 * (uSpinAmount * uv_len + (1.0 - uSpinAmount));
+    vec2 mid = (screenSize.xy / length(screenSize.xy)) / 2.0;
+    uv = (vec2(uv_len * cos(new_pixel_angle) + mid.x, uv_len * sin(new_pixel_angle) + mid.y) - mid);
+    uv *= 30.0;
+    float baseSpeed = iTime * uSpinSpeed;
+    speed = baseSpeed + mouseInfluence * 2.0;
+    vec2 uv2 = vec2(uv.x + uv.y);
+    for(int i = 0; i < 5; i++) {
+        uv2 += sin(max(uv.x, uv.y)) + uv;
+        uv += 0.5 * vec2(cos(5.1123314 + 0.353 * uv2.y + speed * 0.131121), sin(uv2.x - 0.113 * speed));
+        uv -= cos(uv.x + uv.y) - sin(uv.x * 0.711 - uv.y);
+    }
+    float contrast_mod = (0.25 * uContrast + 0.5 * uSpinAmount + 1.2);
+    float paint_res = min(2.0, max(0.0, length(uv) * 0.035 * contrast_mod));
+    float c1p = max(0.0, 1.0 - contrast_mod * abs(1.0 - paint_res));
+    float c2p = max(0.0, 1.0 - contrast_mod * abs(paint_res));
+    float c3p = 1.0 - min(1.0, c1p + c2p);
+    float light = (uLighting - 0.2) * max(c1p * 5.0 - 4.0, 0.0) + uLighting * max(c2p * 5.0 - 4.0, 0.0);
+    return (0.3 / uContrast) * uColor1 + (1.0 - 0.3 / uContrast) * (uColor1 * c1p + uColor2 * c2p + vec4(c3p * uColor3.rgb, c3p * uColor1.a)) + light;
+}
+void main() {
+    vec2 uv = vUv * iResolution.xy;
+    gl_FragColor = effect(iResolution.xy, uv);
+}
+`;
+
+function hexToVec4(hex) {
+  let h = hex.replace('#', '');
+  let r=0,g=0,b=0,a=1;
+  if (h.length === 6) {
+    r = parseInt(h.slice(0,2),16)/255; g = parseInt(h.slice(2,4),16)/255; b = parseInt(h.slice(4,6),16)/255;
+  }
+  return [r,g,b,a];
+}
+
+function initBalatro(container, opts = {}) {
+  const o = Object.assign({
+    spinRotation: 1.0, spinSpeed: 4.0, offset: [0,0],
+    color1: '#7031ed', color2: '#c6319e', color3: '#3c3be6',
+    contrast: 3.0, lighting: 1.35, spinAmount: 0.2,
+    pixelFilter: 900.0, spinEase: 1.0, isRotate: true, mouseInteraction: true
+  }, opts);
+
+  const renderer = new Renderer();
+  const gl = renderer.gl;
+  gl.clearColor(0,0,0,1);
+
+  function resize(){
+    renderer.setSize(container.offsetWidth, container.offsetHeight);
+    if (program) program.uniforms.iResolution.value = [gl.canvas.width, gl.canvas.height, gl.canvas.width/gl.canvas.height];
+  }
+  window.addEventListener('resize', resize);
+
+  const geometry = new Triangle(gl);
+  const program = new Program(gl, {
+    vertex: vertexShader, fragment: fragmentShader,
+    uniforms: {
+      iTime: { value: 0 },
+      iResolution: { value: [gl.canvas.width, gl.canvas.height, gl.canvas.width/gl.canvas.height] },
+      uSpinRotation: { value: o.spinRotation },
+      uSpinSpeed: { value: o.spinSpeed },
+      uOffset: { value: o.offset },
+      uColor1: { value: hexToVec4(o.color1) },
+      uColor2: { value: hexToVec4(o.color2) },
+      uColor3: { value: hexToVec4(o.color3) },
+      uContrast: { value: o.contrast },
+      uLighting: { value: o.lighting },
+      uSpinAmount: { value: o.spinAmount },
+      uPixelFilter: { value: o.pixelFilter },
+      uSpinEase: { value: o.spinEase },
+      uIsRotate: { value: o.isRotate },
+      uMouse: { value: [0.5, 0.5] }
+    }
+  });
+
+  const mesh = new Mesh(gl, { geometry, program });
+  container.appendChild(gl.canvas);
+  resize();
+
+  function update(time){
+    requestAnimationFrame(update);
+    program.uniforms.iTime.value = time * 0.001;
+    renderer.render({ scene: mesh });
+  }
+  requestAnimationFrame(update);
+
+  if (o.mouseInteraction){
+    container.addEventListener('mousemove', (e) => {
+      const rect = container.getBoundingClientRect();
+      program.uniforms.uMouse.value = [(e.clientX-rect.left)/rect.width, 1.0-(e.clientY-rect.top)/rect.height];
+    });
+  }
+}
+
+initBalatro(document.getElementById('balatroBg'), {
+  color1: '#7031ed',
+  color2: '#c6319e',
+  color3: '#3c3be6',
+  contrast: 3.0,
+  lighting: 0.35,
+  spinSpeed: 3.5,
+  isRotate: true,
+});
+</script>
+
+<!-- 1. TOPBAR -->
+<div class="topbar">
+  <div class="marquee-track">
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+  </div>
+</div>
+
+<!-- 2. HEADER / NAV -->
+<header>
+  <nav>
+    <img src="img/JoLuvers Logo.webp" alt="JoLuvers" class="logo-ph img-ph">
+    <div class="nav-links" id="navLinks">
+      <a href="#inicio">Inicio</a>
+      <a href="#virales">Virales</a>
+      <a href="#equipo">Equipo</a>
+      <a href="#colaboraciones">Colaboraciones</a>
+      <a href="docs/joluvers-colaboraciones.pdf" download class="nav-download">Descargar info</a>
+      <a href="#contacto">Contacto</a>
+      <a href="https://wa.me/59899832656?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers%20y%20necesito%20más%20información" class="nav-cta" target="_blank">Colaborar YA!</a>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Menú" aria-expanded="false"><span></span><span></span><span></span></button>
+  </nav>
+</header>
+<script>
+  const navToggle = document.getElementById('navToggle');
+  const navLinks = document.getElementById('navLinks');
+  navToggle.addEventListener('click', () => {
+    const isOpen = navLinks.classList.toggle('open');
+    navToggle.setAttribute('aria-expanded', isOpen);
+  });
+  navLinks.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', () => { navLinks.classList.remove('open'); navToggle.setAttribute('aria-expanded','false'); });
+  });
+</script>
+
+<!-- 3. HERO -->
+<section class="hero" id="inicio">
+  <div class="balatro-container" id="balatroBg"></div>
+  <div class="wrap">
+      <div>
+      <span class="hero-eyebrow">JoLuvers · Paysandú</span>
+      <h1>Somos Jose y Lu</h1>
+      <p class="hero-sub">Bailarinas, actrices y creadoras de contenido — creciendo paso a paso frente a más de 13.7k seguidores.</p>
+      <p class="hero-text">Estamos en un momento hermoso: cada video, cada ensayo y cada función de teatro es una forma de compartir con ustedes todo lo que estamos aprendiendo a hacer. Gracias por acompañarnos en cada paso.</p>
+      <a href="#contacto" class="btn-main">Colaborar con nosotras →</a>
+    </div>
+    <div class="hero-photo">
+      <img src="img/jose y lu dedos.webp" alt="Josefina y Luisana Bassadone" class="hero-photo-img">
+    </div>
+  </div>
+</section>
+
+<!-- 4. PRESENTACIÓN -->
+<section class="presentacion">
+  <div class="wrap pres-grid">
+    <div class="pres-photo-wrap">
+    <img src="img/Playa Parck.webp" alt="Josefina y Luisana Bassadone" class="pres-photo reveal-right">
+    </div>
+    <div>
+      <span class="eyebrow reveal-up">Quiénes somos</span>
+      <h2 class="reveal-up d1">Gemelas de 11 años, <br>con una energía <br>que no para!</h2>
+      <p class="body-text reveal-up d2">Josefina y Luisana son gemelas sanduceras que combinan danza, teatro y contenido para redes. Suben todos los días a un escenario distinto: una clase de baile, un ensayo de "Margarita" o una cámara siempre con la misma simpatía y elocuencia que las hizo conocidas.</p>
+      <div class="stats-row reveal-up d3">
+        <div class="stat">
+          <div class="stat-num">13.7k+</div>
+          <div class="stat-label">Seguidores en Instagram</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num">3.8M+</div>
+          <div class="stat-label">Visualizaciones en su video viral</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num">322k+</div>
+          <div class="stat-label">Likes en un solo video</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4.2. TOPBAR2 -->
+<div class="topbar">
+  <div class="marquee-track">
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+  </div>
+</div>
+
+<!-- 5. GALERÍA -->
+<section class="galeria" id="virales">
+  <div class="wrap">
+    <div class="section-head reveal-up">
+      <span class="eyebrow">Galería</span>
+      <h2>Un poco de nuestro día a día</h2>
+      <p>Danza, teatro y contenido — así se ve una semana cualquiera de Jose y Lu.</p>
+    </div>
+    <div class="gallery-orbit" id="galleryOrbit">
+      <div class="orbit-track" id="orbitTrack">
+        <div class="orbit-item"><img src="img/Lentes.webp" alt="Jose y Lu" class="orbit-photo"></div>        
+        <div class="orbit-item"><img src="img/Corazones.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Jose y Lu Risas.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Maquillaje.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Medallas.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Podcast.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Jose y Lu viento.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Rosa.webp" alt="Jose y Lu" class="orbit-photo"></div>
+        <div class="orbit-item"><img src="img/Azul.webp" alt="Jose y Lu" class="orbit-photo"></div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lightboxClose" aria-label="Cerrar">✕</button>
+    <div class="lightbox-frame" id="lightboxFrame">
+      <img src="" alt="" class="lightbox-photo" id="lightboxPhoto">
+    </div>
+  </div>
+</section>
+
+<!-- 6. COLABORACIONES -->
+<section class="colabs" id="colaboraciones">
+  <div class="wrap">
+    <div class="section-head reveal-up">
+      <span class="eyebrow">Colaboraciones</span>
+      <h2>Marcas y emprendimientos que ya confiaron en nosotras</h2>
+      <p>Desde que se viralizó nuestro encuentro con @valesulca_, emprendimientos de Paysandú nos vienen sumando a sus proyectos.</p>
+    </div>
+    <div class="colabs-grid">
+      <div class="colab-card reveal-up">
+        <img src="img/TodoUniformes.webp" alt="Todo Uniformes" class="img-ph">
+        <div class="colab-body">
+          <div class="colab-reach">+10k de vitas.</div>
+          <h3>En 24 horas.</h3>
+          <p>Cada vez nos ven más personas y eso ayuda <br>a nuestras empresas locales!</p>
+        </div>
+      </div>
+      <div class="colab-card reveal-up d1">
+        <img src="img/Tefi Sirio.webp" alt="Tefi Sirio" class="img-ph">
+        <div class="colab-body">
+          <div class="colab-reach">Que te vean!</div>
+          <h3>Tu negocio lo merece.</h3>
+          <p>Nosotras FELICES de que tengas EXITO!</p>
+        </div>
+      </div>
+      <div class="colab-card reveal-up d2">
+        <img src="img/Maquillaje2.webp" alt="Flavia Leonides Maquilladora Profesional" class="img-ph">
+        <div class="colab-body">
+          <div class="colab-reach">Miles de MG</div>
+          <h3>Nuestras Colaboraciones.</h3>
+          <p>Son para siempre! Cada interacción es un regalo. Eso y mucho más pueden hacer JoLuvers por vos!</p>
+        </div>
+      </div>
+      <div class="colabs-grid"></div>
+        <div class="colabs-download">
+        <a href="docs/joluvers-colaboraciones.pdf" download class="btn-main">Descargar PDF de Colaboraciones ↓</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6.2. TOPBAR3 -->
+<div class="topbar">
+  <div class="marquee-track">
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+    <a href="https://wa.me/59896926351?text=Hola!%20vengo%20de%20la%20web%20de%20JoLuvers" target="_blank" rel="noopener noreferrer nofollow"><span>✦ Tu web profesional como esta, Aquí!</span></a>
+  </div>
+</div>
+
+<!-- 7. AUTORIDAD: EQUIPO -->
+<section class="equipo" id="equipo">
+  <div class="wrap">
+    <div class="section-head reveal-up">
+      <span class="eyebrow">Equipo</span>
+      <h2>Quién está detrás de JoLuvers</h2>
+    </div>
+    <div class="equipo-grid">
+      <div class="miembro reveal-up">
+        <img src="img/mamá.webp" alt="Mamá" class="img-ph">
+        <h3>Mamá</h3>
+        <span>Nuestra Reina!</span>
+      </div>
+      <div class="miembro reveal-up d1">
+        <img src="img/Flavia Leonides MUp.webp" alt="Tíos" class="img-ph">
+        <h3>Nuestra Tía Maquilladora</h3>
+        <span>Ama y señora del Maquillaje!</span>
+      </div>
+      <div class="miembro reveal-up d2">
+        <img src="img/JoLuvers2.webp" alt="JoLuvers" class="img-ph">
+        <h3>Y Ustedes!</h3>
+        <span>Sin ustedes no podríamos hacer todo esto! <br>GRACIAS INFINITAS!</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIOS -->
+<section class="testimonios">
+  <div class="wrap">
+    <div class="section-head reveal-up">
+      <span class="eyebrow">Testimonios</span>
+      <h2>Lo que dicen de nosotras</h2>
+    </div>
+    <div class="test-grid">
+      <div class="test-card reveal-up">
+        <div class="test-stars">★★★★★</div>
+        <p>"Que lindoooo❤️ vamos que lo van a conseguir (Conocer a Tini)"</p>
+        <div class="test-author">
+        <img src="img/Rodri Suárez.webp" alt="Rodri Suárez" class="test-avatar img-ph">
+          <div><div class="test-name">Rodri Suárez</div><div class="test-role">Un GENIO del humor!</div></div>
+        </div>
+      </div>
+      <div class="test-card reveal-up d1">
+        <div class="test-stars">★★★★★</div>
+        <p>"Ayyy que hermosas ❤️❤️ aguante Paysandú y estas hermosuras."</p>
+        <div class="test-author">
+          <img src="img/Belen.webp" alt="Belén" class="test-avatar img-ph">
+          <div><div class="test-name">Belén Navadian</div><div class="test-role">¡Una Reina Más :O !</div></div>
+        </div>
+      </div>
+      <div class="test-card reveal-up d2">
+        <div class="test-stars">★★★★★</div>
+        <p>"Ayyyyy son lo masss❤️ las amooo❤️."</p>
+        <div class="test-author">
+          <img src="img/Paola.webp" alt="Paola" class="test-avatar img-ph">
+          <div><div class="test-name">Paola Álvarez</div><div class="test-role">¡Genia del escenario y de nuestro ❤️!</div></div>
+        </div>
+      </div>
+      <div class="test-card reveal-up d2">
+        <div class="test-stars">★★★★★</div>
+        <p>"Clarooooo! Los sueñños se cumplen!❤️❤️❤️"</p>
+        <div class="test-author">
+          <img src="img/Angel Franco.webp" alt="Angel Franco" class="test-avatar img-ph">
+          <div><div class="test-name">Angel Franco</div><div class="test-role">¡Está de tour con TINI AAAAAAh!</div></div>
+      </div>
+    </div>
+      <div class="test-card reveal-up d2">
+        <div class="test-stars">★★★★★</div>
+          <p>"Nunca dejen de creer. A veces los sueños llegan cuando menos lo esperás 💕👑👑🫂✨"</p>
+          <div class="test-author">
+            <img src="img/Nicolas Gabriel.webp" alt="Nicolas Gabriel" class="test-avatar img-ph">
+            <div><div class="test-name">Nicolas Gabriel</div>
+            <div class="test-role">¡Bailarín estelar de Tini!</div>
+            </div>
+          </div>
+      </div>
+    <div class="test-card reveal-up d2">
+      <div class="test-stars">★★★★★</div>
+          <p>"Ojalá algún día puedan cumplir su mayor sueño de conocer a Tini en persona muñecas bellas. 🙌🙌❤️"</p>
+          <div class="test-author">
+            <img src="img/Serena.webp" alt="Serena" class="test-avatar img-ph">
+            <div><div class="test-name">Serena</div><div class="test-role">¡Un AMOR!</div>
+            </div>
+          </div>
+        </div>
+    </div>
+</section>
+
+        
+
+
+<!-- CONTACTO -->
+<section class="contacto" id="contacto">
+  <div class="wrap">
+    <div class="contacto-box reveal-fade">
+      <div>
+        <h2>¿Tenés una propuesta para nosotras?</h2>
+        <p>Contanos tu idea de colaboración. Todas las propuestas las revisa un adulto responsable antes de coordinar cualquier cosa.</p>
+      </div>
+      <form onsubmit="return false;">
+        <div class="form-field"><label>Nombre</label><input type="text" name="nombre" required></div>
+        <div class="form-field"><label>Emprendimiento / Marca / Usuario de Instagram</label><input type="text" name="marca"></div>
+        <div class="form-field"><label>Email o WhatsApp</label><input type="text" name="contacto" required></div>
+        <div class="form-field"><label>Tu propuesta</label><textarea name="mensaje" required></textarea></div>
+        <button class="form-submit" type="submit">Enviar propuesta</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-col">
+          <img src="img/JoLuvers Logo.webp" alt="Paola" class="footer-logo img-ph">
+        <p class="about">Web Creada por HeyEduAgency</p>
+        <div class="footer-social">
+          <a href="https://www.instagram.com/luyjosebassa15">ig</a>
+          <a href="https://www.tiktok.com/@valentina.garcia7255">tt</a>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h4>Navegación</h4>
+        <ul>
+          <li><a href="#inicio">Inicio</a></li>
+          <li><a href="#colaboraciones">Colaboraciones</a></li>
+          <li><a href="#virales">Virales</a></li>
+          <li><a href="#equipo">Equipo</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Hablemos</h4>
+        <ul>
+          <li><a href="#contacto">Contacto</a></li>
+          <li><a href="mailto:info@joluvers.com">E-mail</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Nuestras Redes</h4>
+        <p class="about" href="https://www.instagram.com/luyjosebassa15/" target="_blank">Instagram</p>
+        <p class="about" href="https://www.tiktok.com/@valentina.garcia7255" target="_blank">TikTok</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>HeyEduAgency</span>
+    <span>Sólo buenas vibras.</span>
+  </div>
+</footer>
+
+<script>
+  const revealEls = document.querySelectorAll('.reveal-right, .reveal-up, .reveal-fade');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) { entry.target.classList.add('visible'); io.unobserve(entry.target); }
+    });
+  }, { threshold: 0.15 });
+  revealEls.forEach(el => io.observe(el));
+</script>
+
+<script>
+(function(){
+  const orbit = document.getElementById('galleryOrbit');
+  const track = document.getElementById('orbitTrack');
+  const items = Array.from(track.querySelectorAll('.orbit-item'));
+  let angle = 0, paused = false, lightboxOpen = false;
+
+  function layout(){
+    const r = (orbit.offsetWidth / 2) - (orbit.offsetWidth < 500 ? 60 : 90);
+    const step = 360 / items.length;
+    items.forEach((item, i) => {
+      const a = (angle + i * step) * (Math.PI / 180);
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      item.style.transform = `translate(${x}px, ${y}px)`;
+    });
+  }
+  function tick(){
+    if (!paused) angle += 0.15;
+    layout();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  const lightbox = document.getElementById('lightbox');
+  const lightboxFrame = document.getElementById('lightboxFrame');
+  const lightboxPhoto = document.getElementById('lightboxPhoto');
+  const lightboxClose = document.getElementById('lightboxClose');
+
+  function openLightbox(item){
+    lightboxOpen = true; paused = true;
+    const src = item.querySelector('.orbit-photo').src;
+    lightboxPhoto.src = src;
+    lightbox.classList.add('open');
+}
+  function closeLightbox(){
+    lightboxOpen = false; paused = false;
+    lightbox.classList.remove('open');
+    lightboxFrame.style.transform = '';
+    lightboxFrame.style.opacity = '';
+  }
+
+  items.forEach((item) => {
+    item.addEventListener('mouseenter', () => { paused = true; });
+    item.addEventListener('mouseleave', () => { if(!lightboxOpen) paused = false; });
+    item.addEventListener('click', () => openLightbox(item));
+  });
+
+  lightboxClose.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (e) => { if(e.target === lightbox) closeLightbox(); });
+
+  let dragging = false, startX = 0, startY = 0;
+  function pointerDown(e){
+    dragging = true;
+    const p = e.touches ? e.touches[0] : e;
+    startX = p.clientX; startY = p.clientY;
+    lightboxFrame.style.transition = 'none';
+  }
+  function pointerMove(e){
+    if (!dragging) return;
+    const p = e.touches ? e.touches[0] : e;
+    const dx = p.clientX - startX, dy = p.clientY - startY;
+    lightboxFrame.style.transform = `translate(${dx}px, ${dy}px)`;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    lightboxFrame.style.opacity = Math.max(1 - dist / 400, 0.3);
+  }
+  function pointerUp(){
+    if (!dragging) return;
+    dragging = false;
+    lightboxFrame.style.transition = 'transform .3s ease, opacity .3s ease';
+    const m = new DOMMatrixReadOnly(getComputedStyle(lightboxFrame).transform);
+    const dist = Math.sqrt(m.m41 * m.m41 + m.m42 * m.m42);
+    if (dist > 120) closeLightbox();
+    else { lightboxFrame.style.transform = ''; lightboxFrame.style.opacity = ''; }
+  }
+  lightboxFrame.addEventListener('mousedown', pointerDown);
+  lightboxFrame.addEventListener('touchstart', pointerDown, {passive:true});
+  window.addEventListener('mousemove', pointerMove);
+  window.addEventListener('touchmove', pointerMove, {passive:true});
+  window.addEventListener('mouseup', pointerUp);
+  window.addEventListener('touchend', pointerUp);
+})();
+</script>
+
+<script>
+document.getElementById('contacto').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const nombre = form.nombre.value;
+  const marca = form.marca.value;
+  const mensaje = form.mensaje.value;
+  const texto = encodeURIComponent(`Propuesta para JoLuvers\nNombre: ${nombre}\nMarca: ${marca}\nMensaje: ${mensaje}`);
+  window.open(`https://wa.me/59899832656?text=${texto}`, '_blank');
+});
+</script>
+
+</body>
+</html>
